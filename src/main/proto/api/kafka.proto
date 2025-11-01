@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+// Define a namespace for all messages in this file.
+package api;
+
+// Optional: set code generation options for each language.
+option java_package = "com.example.kafka.api";
+option java_multiple_files = true;
+
+message Record {
+  bytes value = 1;
+  int64 offset = 2;
+}
+
+// Enums
+enum AckLevel {
+  NONE = 0;
+  ALL = 1;
+}
+
+enum ErrorCode {
+  OK = 0;
+  NOT_LEADER = 1;
+  REBALANCE_IN_PROGRESS = 2;
+  UNKNOWN_MEMBER_ID = 3;
+  TOPIC_ALREADY_EXISTS = 4;
+}
+
+// Producer
+message ProducerRequest {
+  string topic = 1;
+  uint32 partition = 2;
+  bytes value = 3;
+  AckLevel ack = 4;
+  uint64 producer_id = 5;
+  int64 sequence_number = 6;
+}
+
+// Response from broker after producing message.
+message ProducerResponse {
+  int64 offset = 1;
+  ErrorCode error = 2;
+  string leader_address = 3;
+}
+
+// Consumer
+message ConsumerRequest {
+  int64 topic = 1;
+  uint32 partition = 2;
+  int64 offset = 3; // Offset start
+}
+
+message ConsumerResponse {
+  Record record = 1;
+}
+
+// Consumer group
+message CommitOffsetRequest {
+  string consumer_group_id = 1;
+  string topic = 2;
+  uint32 partition = 3;
+  int64 offset = 4;
+}
+
+message CommitOffsetResponse {}
+
+// Fetch last committed offset.
+message FetchOffsetRequest {
+  string consumer_group_id = 1;
+  string topic = 2;
+  uint32 partition = 3;
+}
+
+message FetchOffsetResponse {
+  int64 offset = 1;
+}
+
+// Create new topic with number of partitions.
+message CreateTopicRequest {
+  string topic = 1;
+  uint32 partitions = 2;
+}
+
+message CreateTopicResponse {
+  ErrorCode error_code = 1;
+}
+
+// Service
+service Kafka {
+  rpc Produce(ProducerRequest) returns (ProducerResponse);
+  rpc Consume(ConsumerRequest) returns (ConsumerResponse);
+  rpc CommitOffset(CommitOffsetRequest) returns (CommitOffsetResponse);
+  rpc FetchOffset(FetchOffsetRequest) returns (FetchOffsetResponse);
+  rpc CreateTopic(CreateTopicRequest) returns (CreateTopicResponse);
+}
+
