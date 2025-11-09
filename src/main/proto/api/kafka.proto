@@ -28,15 +28,14 @@ enum ErrorCode {
 
 // Producer
 message ProducerRequest {
-  string topic = 1;
-  uint32 partition = 2;
-  bytes value = 3;
-  AckLevel ack = 4;
-  uint64 producer_id = 5;
-  int64 sequence_number = 6;
+  string topic = 1; // where to send the data
+  uint32 partition = 2; // which partition it is going to. Real life sender should not need to send this. This is for demo.
+  bytes value = 3; // the value of the message. Should be bytes so it can receive any primal type.
+  AckLevel ack = 4; // 0: producer does not need to wait for confirmation. 1: producer needs response.
+  uint64 producer_id = 5; // unique producer id
+  int64 sequence_number = 6; //
 }
 
-// Response from broker after producing message.
 message ProducerResponse {
   int64 offset = 1;
   ErrorCode error = 2;
@@ -45,7 +44,7 @@ message ProducerResponse {
 
 // Consumer
 message ConsumerRequest {
-  int64 topic = 1;
+  string topic = 1;
   uint32 partition = 2;
   int64 offset = 3; // Offset start
 }

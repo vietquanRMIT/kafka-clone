@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: "Kafka-clone"
+
+grpc:
+  server:
+    port: 9090
+  client:
+    kafkaClient:
+      address: 'static://localhost:9090'
+      negotiationType: plaintext

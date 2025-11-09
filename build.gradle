@@ -5,6 +5,9 @@ plugins {
 
     id "com.google.protobuf" version "0.9.5"
 }
+ext {
+    springGrpcVersion = "0.12.0"
+}
 
 group = 'com.example'
 version = '0.0.1-SNAPSHOT'
@@ -25,7 +28,13 @@ dependencies {
     implementation 'io.grpc:grpc-netty-shaded:1.76.0'
     implementation 'io.grpc:grpc-protobuf:1.76.0'
     implementation 'io.grpc:grpc-stub:1.76.0'
+    implementation 'org.springframework.grpc:spring-grpc-spring-boot-starter'
     compileOnly 'org.apache.tomcat:annotations-api:6.0.53' // for @Generated
+
+    implementation 'info.picocli:picocli:4.7.7'
+
+//    implementation 'net.devh:grpc-server-spring-boot-starter:2.15.0.RELEASE'
+//    implementation 'net.devh:grpc-client-spring-boot-starter:2.15.0.RELEASE'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -33,7 +42,7 @@ dependencies {
 
 protobuf {
     protoc {
-        artifact = 'com.google.protobuf:protoc:3.7.0'
+        artifact = 'com.google.protobuf:protoc:3.25.3'
     }
     plugins {
         grpc {
@@ -55,6 +64,11 @@ sourceSets {
             srcDirs 'build/generated/source/proto/main/java',
                     'build/generated/source/proto/main/grpc'
         }
+    }
+}
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.grpc:spring-grpc-dependencies:$springGrpcVersion"
     }
 }
 
