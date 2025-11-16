@@ -26,6 +26,19 @@ public class KafkaClient implements AutoCloseable {
         System.out.println("Offset: " + response.getOffset());
     }
 
+    public void consume(String topic, int partition, long offset) {
+        ConsumerRequest request = ConsumerRequest.newBuilder()
+                .setTopic(topic)
+                .setPartition(partition)
+                .setOffset(offset)
+                .build();
+
+        ConsumerResponse response = stub.consume(request);
+        String message = response.getRecord().getValue().toStringUtf8();
+        System.out.println("Message: " + message);
+        System.out.println("Offset: " + response.getRecord().getOffset());
+    }
+
     @Override
     public void close() {
         channel.shutdown();

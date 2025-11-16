@@ -1,12 +1,14 @@
 package com.example.kafkaclone.cmd.command;
 
 import com.example.kafkaclone.cmd.client.KafkaClient;
+import org.springframework.stereotype.Component;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Command;
 
 @Command(
-        name = "producer", description = "Send message"
+        name = "produce", description = "Send message"
 )
+@Component
 public class ProducerCommand implements Runnable {
 
     @Option(names = {"-t", "--topic"}, required = true, description = "Topic name")
