@@ -24,12 +24,7 @@ public class KafkaClientApplication implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        CommandLine.IFactory factory = new CommandLine.IFactory() {
-            @Override
-            public <K> K create(Class<K> cls) throws Exception {
-                return applicationContext.getBean(cls);
-            }
-        };
+        CommandLine.IFactory factory = applicationContext::getBean;
 
         CommandLine commandLine = new CommandLine(kafkaCli, factory);
         int exitCode = commandLine.execute(args);

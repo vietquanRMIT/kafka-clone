@@ -31,9 +31,6 @@ dependencies {
     implementation 'org.springframework.grpc:spring-grpc-spring-boot-starter'
     compileOnly 'org.apache.tomcat:annotations-api:6.0.53' // for @Generated
 
-//    implementation 'net.devh:grpc-server-spring-boot-starter:2.15.0.RELEASE'
-//    implementation 'net.devh:grpc-client-spring-boot-starter:2.15.0.RELEASE'
-
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
