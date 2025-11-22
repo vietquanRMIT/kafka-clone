@@ -1,15 +1,13 @@
-package com.example.kafkaclone.cmd.command;
+package com.example.kafkaclient.cmd.command;
 
-import com.example.kafkaclone.cmd.client.KafkaClient;
+import com.example.kafkaclient.cmd.client.KafkaClient;
 import org.springframework.stereotype.Component;
-import picocli.CommandLine.Option;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 
-@Command(
-        name = "produce", description = "Send message"
-)
+@Command(name = "consume", description = "Fetch a record from a topic partition")
 @Component
-public class ProducerCommand implements Runnable {
+public class ConsumerCommand implements Runnable {
 
     @Option(names = {"-t", "--topic"}, required = true, description = "Topic name")
     String topic;
@@ -17,14 +15,13 @@ public class ProducerCommand implements Runnable {
     @Option(names = {"-p", "--partition"}, required = true, description = "Partition number")
     int partition;
 
-    @Option(names = {"-m", "--message"}, required = true, description = "Message to send")
-    String message;
+    @Option(names = {"-o", "--offset"}, required = true, description = "Offset to read from")
+    long offset;
 
     @Override
     public void run() {
         try (KafkaClient client = new KafkaClient("localhost", 9090)) {
-            client.produce(topic, partition, message);
-            System.out.println("✅ Message sent to topic " + topic);
+            client.consume(topic, partition, offset);
         } catch (Exception e) {
             e.printStackTrace();
         }

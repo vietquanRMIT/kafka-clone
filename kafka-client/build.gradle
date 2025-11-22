@@ -1,17 +1,13 @@
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '3.5.7'
+    id 'org.springframework.boot' version '3.5.8'
     id 'io.spring.dependency-management' version '1.1.7'
-
-    id "com.google.protobuf" version "0.9.5"
-}
-ext {
-    springGrpcVersion = "0.12.0"
+    id 'com.google.protobuf' version '0.9.5'
 }
 
 group = 'com.example'
 version = '0.0.1-SNAPSHOT'
-description = 'kafka-clone'
+description = 'kafka-client'
 
 java {
     toolchain {
@@ -25,14 +21,12 @@ repositories {
 
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'info.picocli:picocli:4.7.7'
+
     implementation 'io.grpc:grpc-netty-shaded:1.76.0'
     implementation 'io.grpc:grpc-protobuf:1.76.0'
     implementation 'io.grpc:grpc-stub:1.76.0'
-    implementation 'org.springframework.grpc:spring-grpc-spring-boot-starter'
     compileOnly 'org.apache.tomcat:annotations-api:6.0.53' // for @Generated
-
-//    implementation 'net.devh:grpc-server-spring-boot-starter:2.15.0.RELEASE'
-//    implementation 'net.devh:grpc-client-spring-boot-starter:2.15.0.RELEASE'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -58,15 +52,14 @@ protobuf {
 
 sourceSets {
     main {
+        proto {
+            srcDir '../src/main/proto'
+        }
         java {
-            srcDirs 'build/generated/source/proto/main/java',
+            srcDirs 'src/main/java',
+                    'build/generated/source/proto/main/java',
                     'build/generated/source/proto/main/grpc'
         }
-    }
-}
-dependencyManagement {
-    imports {
-        mavenBom "org.springframework.grpc:spring-grpc-dependencies:$springGrpcVersion"
     }
 }
 

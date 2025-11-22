@@ -1,10 +1,16 @@
-package com.example.kafkaclone.cmd.client;
+package com.example.kafkaclient.cmd.client;
 
-import com.example.kafka.api.*;
+import com.example.kafka.api.ConsumerRequest;
+import com.example.kafka.api.ConsumerResponse;
+import com.example.kafka.api.KafkaGrpc;
+import com.example.kafka.api.ProducerRequest;
+import com.example.kafka.api.ProducerResponse;
+import com.google.protobuf.ByteString;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 
 public class KafkaClient implements AutoCloseable {
+
     private final ManagedChannel channel;
     private final KafkaGrpc.KafkaBlockingStub stub;
 
@@ -19,7 +25,7 @@ public class KafkaClient implements AutoCloseable {
         ProducerRequest request = ProducerRequest.newBuilder()
                 .setTopic(topic)
                 .setPartition(partition)
-                .setValue(com.google.protobuf.ByteString.copyFromUtf8(message))
+                .setValue(ByteString.copyFromUtf8(message))
                 .build();
 
         ProducerResponse response = stub.produce(request);
