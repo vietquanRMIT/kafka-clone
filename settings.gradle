@@ -1,1 +1,5 @@
 rootProject.name = 'kafka-clone'
+
+include 'kafka-proto'
+include 'kafka-server'
+include 'kafka-client'

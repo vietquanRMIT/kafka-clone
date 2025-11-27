@@ -1,12 +1,16 @@
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '3.5.8'
+    id 'org.springframework.boot' version '3.5.7'
     id 'io.spring.dependency-management' version '1.1.7'
+}
+
+ext {
+    springGrpcVersion = "0.12.0"
 }
 
 group = 'com.example'
 version = '0.0.1-SNAPSHOT'
-description = 'kafka-client'
+description = 'kafka-server'
 
 java {
     toolchain {
@@ -21,11 +25,17 @@ repositories {
 dependencies {
     implementation project(':kafka-proto')
     implementation 'org.springframework.boot:spring-boot-starter'
-    implementation 'info.picocli:picocli:4.7.7'
     implementation 'io.grpc:grpc-netty-shaded:1.76.0'
+    implementation 'org.springframework.grpc:spring-grpc-spring-boot-starter'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.grpc:spring-grpc-dependencies:$springGrpcVersion"
+    }
 }
 
 tasks.named('test') {

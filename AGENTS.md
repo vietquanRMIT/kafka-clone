@@ -1,18 +1,27 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `src/main/java`: Spring Boot gRPC broker. Keep service logic under `service/`.
-- `src/main/proto`: gRPC contract (`api/kafka.proto`). Regenerate stubs with `./gradlew generateProto` after edits.
-- `src/main/resources`: Spring configuration (e.g., `application.yml`).
-- `src/test/java`: JUnit tests; mirror package paths from `src/main/java`.
-- `build/`: Gradle outputs. Do not commit.
-- `kafka-client/`: Standalone CLI module. Its `src/main/java/com/example/kafkaclient/cmd` tree hosts Picocli commands, and it reuses the root proto via Gradle configuration.
+
+This is a Gradle multi-module project with three modules:
+
+- **kafka-proto/**: Shared gRPC/Protocol Buffer definitions
+  - `src/main/proto/api/kafka.proto`: gRPC contract. Regenerate stubs with `./gradlew :kafka-proto:generateProto` after edits.
+  
+- **kafka-server/**: Spring Boot gRPC broker (server)
+  - `src/main/java/com/example/kafkaclone/`: Server application and service logic under `service/`.
+  - `src/main/resources/application.yml`: Spring configuration.
+  - `src/test/java/`: JUnit tests; mirror package paths from `src/main/java`.
+  
+- **kafka-client/**: CLI module using Picocli
+  - `src/main/java/com/example/kafkaclient/cmd/`: Picocli commands for produce/consume operations.
 
 ## Build, Test, and Development Commands
-- `./gradlew build`: Compile the broker, run tests, and assemble the bootable JAR.
-- `./gradlew bootRun`: Launch the broker locally on `localhost:9090`.
-- `./gradlew test`: Run the broker’s JUnit suite; required before any PR.
-- `cd kafka-client && ./gradlew bootRun --args='kafka produce -t demo -p 0 -m hi'`: Execute CLI commands against a running broker. Replace args with `consume` to read messages.
+- `./gradlew build`: Build all modules, run tests, and assemble JARs.
+- `./gradlew :kafka-server:bootRun`: Launch the broker locally on `localhost:9090`.
+- `./gradlew :kafka-client:bootRun --args='produce -t demo -p 0 -m hi'`: Execute CLI commands against a running broker.
+- `./gradlew test`: Run all tests across all modules.
+- `./gradlew :kafka-server:test`: Run only server tests.
+- `./gradlew :kafka-client:test`: Run only client tests.
 
 ## Coding Style & Naming Conventions
 - Java 21, 4-space indentation, braces on same line. Favor descriptive class names (e.g., `KafkaService`, `ProducerCommand`).
