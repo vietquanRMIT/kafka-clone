@@ -1,10 +1,14 @@
 package com.example.kafkaclient.cmd.client;
 
+import com.example.kafka.api.CommitOffsetRequest;
 import com.example.kafka.api.ConsumerRequest;
 import com.example.kafka.api.ConsumerResponse;
+import com.example.kafka.api.FetchOffsetRequest;
+import com.example.kafka.api.FetchOffsetResponse;
 import com.example.kafka.api.KafkaGrpc;
 import com.example.kafka.api.ProducerRequest;
 import com.example.kafka.api.ProducerResponse;
+import com.example.kafka.api.Record;
 import com.google.protobuf.ByteString;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -32,7 +36,7 @@ public class KafkaClient implements AutoCloseable {
         System.out.println("Offset: " + response.getOffset());
     }
 
-    public void consume(String topic, int partition, long offset) {
+    public Record consume(String topic, int partition, long offset) {
         ConsumerRequest request = ConsumerRequest.newBuilder()
                 .setTopic(topic)
                 .setPartition(partition)
@@ -40,9 +44,29 @@ public class KafkaClient implements AutoCloseable {
                 .build();
 
         ConsumerResponse response = stub.consume(request);
-        String message = response.getRecord().getValue().toStringUtf8();
-        System.out.println("Message: " + message);
-        System.out.println("Offset: " + response.getRecord().getOffset());
+        return response.getRecord();
+    }
+
+    public long fetchCommittedOffset(String consumerGroupId, String topic, int partition) {
+        FetchOffsetRequest request = FetchOffsetRequest.newBuilder()
+                .setConsumerGroupId(consumerGroupId)
+                .setTopic(topic)
+                .setPartition(partition)
+                .build();
+
+        FetchOffsetResponse response = stub.fetchOffset(request);
+        return response.getOffset();
+    }
+
+    public void commitOffset(String consumerGroupId, String topic, int partition, long offset) {
+        CommitOffsetRequest request = CommitOffsetRequest.newBuilder()
+                .setConsumerGroupId(consumerGroupId)
+                .setTopic(topic)
+                .setPartition(partition)
+                .setOffset(offset)
+                .build();
+
+        stub.commitOffset(request);
     }
 
     @Override

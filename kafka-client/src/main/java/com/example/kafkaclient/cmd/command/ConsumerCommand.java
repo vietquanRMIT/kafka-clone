@@ -1,5 +1,6 @@
 package com.example.kafkaclient.cmd.command;
 
+import com.example.kafka.api.Record;
 import com.example.kafkaclient.cmd.client.KafkaClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,15 +20,41 @@ public class ConsumerCommand implements Runnable {
     @Option(names = {"-p", "--partition"}, required = true, description = "Partition number")
     int partition;
 
-    @Option(names = {"-o", "--offset"}, required = true, description = "Offset to read from")
-    long offset;
+    @Option(names = {"-g", "--group"}, required = false, description = "Consumer group identifier")
+    String consumerGroupId;
+
+    @Option(names = {"-o", "--offset"}, required = false, description = "Offset to read from. If omitted, the next committed offset for the provided group will be used.")
+    Long offset;
 
     @Override
     public void run() {
         try (KafkaClient client = new KafkaClient("localhost", 9090)) {
-            client.consume(topic, partition, offset);
+            long effectiveOffset = resolveOffset(client);
+
+            Record record = client.consume(topic, partition, effectiveOffset);
+            String message = record.getValue().toStringUtf8();
+            System.out.println("Message: " + message);
+            System.out.println("Offset: " + record.getOffset());
+
+            if (consumerGroupId != null) {
+                client.commitOffset(consumerGroupId, topic, partition, record.getOffset());
+                System.out.printf("✅ Committed offset %d for group %s%n", record.getOffset(), consumerGroupId);
+            }
         } catch (Exception e) {
             logger.error("Failed to consume message from topic {}: {}", topic, e.getMessage());
         }
+    }
+
+    private long resolveOffset(KafkaClient client) {
+        if (offset != null) {
+            return offset;
+        }
+
+        if (consumerGroupId == null) {
+            throw new IllegalArgumentException("Specify either --offset or --group to determine the next record to read");
+        }
+
+        long committed = client.fetchCommittedOffset(consumerGroupId, topic, partition);
+        return committed < 0 ? 0L : committed + 1;
     }
 }
