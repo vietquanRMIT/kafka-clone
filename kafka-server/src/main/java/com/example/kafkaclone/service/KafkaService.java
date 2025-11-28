@@ -10,17 +10,20 @@ import org.slf4j.LoggerFactory;
 import org.springframework.grpc.server.service.GrpcService;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @GrpcService
 public class KafkaService extends KafkaGrpc.KafkaImplBase {
 
     private final Logger logger = LoggerFactory.getLogger(KafkaService.class);
 
-    // eg: topic { partition: {Record, Record, ...}}
-    private final Map<String, Map<Integer, List<Record>>> logs = new HashMap<>();
+    private static final int DEFAULT_PARTITION_ID = 0;
+
+    // topic -> partition -> records
+    private final Map<String, Map<Integer, List<Record>>> logs = new ConcurrentHashMap<>();
     private final OffsetManager offsetManager;
 
     public KafkaService(OffsetManager offsetManager) {
@@ -33,18 +36,16 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
         logger.info("Producer received request {}", request.toString());
 
         String topic = request.getTopic();
-        int partition = request.getPartition();
+        int partition = DEFAULT_PARTITION_ID;
         byte[] value = request.getValue().toByteArray();
 
-        logs.putIfAbsent(topic, new HashMap<>());
-        logs.get(topic).putIfAbsent(partition, new ArrayList<>());
-
+        List<Record> records = getOrCreatePartition(topic, partition);
         Record newRecord = Record.newBuilder()
-                .setOffset(logs.get(topic).get(partition).size())
+                .setOffset(records.size())
                 .setValue(ByteString.copyFrom(value))
                 .build();
 
-        logs.get(topic).get(partition).add(newRecord);
+        records.add(newRecord);
 
         ProducerResponse response = ProducerResponse.newBuilder()
                 .setOffset(newRecord.getOffset())
@@ -61,17 +62,16 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
         logger.info("Consumer received request {}", request.toString());
 
         String topic = request.getTopic();
-        int partition = request.getPartition();
+        int partition = DEFAULT_PARTITION_ID;
         long offset = request.getOffset();
 
-        if (!logs.containsKey(topic) | !logs.get(topic).containsKey(partition)) {
+        List<Record> records = getPartition(topic, partition);
+        if (records == null) {
             responseObserver.onError(Status.INVALID_ARGUMENT.withDescription(String.format("topic %s and partition %s not found", topic, partition)).asRuntimeException());
             return;
         }
 
-        List<Record> records = logs.get(topic).get(partition);
-
-        if (offset < 0 | offset >= records.size()) {
+        if (offset < 0 || offset >= records.size()) {
             responseObserver.onError(Status.INVALID_ARGUMENT.withDescription(String.format("offset %s not found", offset)).asRuntimeException());
             return;
         }
@@ -121,6 +121,40 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
 
     @Override
     public void createTopic(CreateTopicRequest request, StreamObserver<CreateTopicResponse> responseObserver) {
-        super.createTopic(request, responseObserver);
+        logger.info("CreateTopic received request {}", request);
+
+        String topic = request.getTopic();
+        Map<Integer, List<Record>> partitions = new ConcurrentHashMap<>();
+        partitions.put(DEFAULT_PARTITION_ID, Collections.synchronizedList(new ArrayList<>()));
+        Map<Integer, List<Record>> existing = logs.putIfAbsent(topic, partitions);
+        boolean alreadyExists = existing != null;
+        if (alreadyExists) {
+            existing.computeIfAbsent(DEFAULT_PARTITION_ID, ignored -> Collections.synchronizedList(new ArrayList<>()));
+        }
+
+        CreateTopicResponse response = CreateTopicResponse.newBuilder()
+                .setErrorCode(alreadyExists ? ErrorCode.TOPIC_ALREADY_EXISTS : ErrorCode.OK)
+                .build();
+
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+    }
+
+    private List<Record> getOrCreatePartition(String topic, int partition) {
+        Map<Integer, List<Record>> partitions = logs.computeIfAbsent(topic, t -> {
+            Map<Integer, List<Record>> newPartitions = new ConcurrentHashMap<>();
+            newPartitions.put(DEFAULT_PARTITION_ID, Collections.synchronizedList(new ArrayList<>()));
+            return newPartitions;
+        });
+
+        return partitions.computeIfAbsent(partition, ignored -> Collections.synchronizedList(new ArrayList<>()));
+    }
+
+    private List<Record> getPartition(String topic, int partition) {
+        Map<Integer, List<Record>> partitions = logs.get(topic);
+        if (partitions == null) {
+            return null;
+        }
+        return partitions.get(partition);
     }
 }
