@@ -21,6 +21,11 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
 
     // eg: topic { partition: {Record, Record, ...}}
     private final Map<String, Map<Integer, List<Record>>> logs = new HashMap<>();
+    private final OffsetManager offsetManager;
+
+    public KafkaService(OffsetManager offsetManager) {
+        this.offsetManager = offsetManager;
+    }
 
     @Override
     public void produce(ProducerRequest request, StreamObserver<ProducerResponse> responseObserver) {
@@ -83,12 +88,35 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
 
     @Override
     public void commitOffset(CommitOffsetRequest request, StreamObserver<CommitOffsetResponse> responseObserver) {
-        super.commitOffset(request, responseObserver);
+        logger.info("CommitOffset received request {}", request);
+
+        offsetManager.commitOffset(
+                request.getConsumerGroupId(),
+                request.getTopic(),
+                request.getPartition(),
+                request.getOffset()
+        );
+
+        responseObserver.onNext(CommitOffsetResponse.newBuilder().build());
+        responseObserver.onCompleted();
     }
 
     @Override
     public void fetchOffset(FetchOffsetRequest request, StreamObserver<FetchOffsetResponse> responseObserver) {
-        super.fetchOffset(request, responseObserver);
+        logger.info("FetchOffset received request {}", request);
+
+        long lastCommitted = offsetManager.readOffset(
+                request.getConsumerGroupId(),
+                request.getTopic(),
+                request.getPartition()
+        ).orElse(-1L);
+
+        FetchOffsetResponse response = FetchOffsetResponse.newBuilder()
+                .setOffset(lastCommitted)
+                .build();
+
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
     }
 
     @Override
