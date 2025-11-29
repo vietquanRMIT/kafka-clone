@@ -5,7 +5,6 @@ import com.example.kafka.api.Record;
 import com.google.protobuf.ByteString;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
-import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.grpc.server.service.GrpcService;
@@ -18,7 +17,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @GrpcService
-@RequiredArgsConstructor
 public class KafkaService extends KafkaGrpc.KafkaImplBase {
 
     private final Logger logger = LoggerFactory.getLogger(KafkaService.class);
@@ -29,6 +27,10 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
     private final Map<String, Map<Integer, List<Record>>> logs = new ConcurrentHashMap<>();
     private final Map<String, AtomicInteger> topicRoundRobinCounters = new ConcurrentHashMap<>();
     private final OffsetManager offsetManager;
+
+    public KafkaService(OffsetManager offsetManager) {
+        this.offsetManager = offsetManager;
+    }
 
     @Override
     public void produce(ProducerRequest request, StreamObserver<ProducerResponse> responseObserver) {

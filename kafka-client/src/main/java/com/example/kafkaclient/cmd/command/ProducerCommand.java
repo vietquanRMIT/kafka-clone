@@ -16,8 +16,8 @@ public class ProducerCommand implements Runnable {
     @Option(names = {"-t", "--topic"}, required = true, description = "Topic name")
     String topic;
 
-    @Option(names = {"-p", "--partition"}, required = true, description = "Partition number")
-    int partition;
+    @Option(names = {"-p", "--partition"}, required = false, description = "Partition number. Omit to let the broker assign via default partitioner")
+    Integer partition;
 
     @Option(names = {"-m", "--message"}, required = true, description = "Message payload")
     String message;

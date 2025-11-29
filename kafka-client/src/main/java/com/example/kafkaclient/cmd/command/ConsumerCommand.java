@@ -51,7 +51,7 @@ public class ConsumerCommand implements Runnable {
         }
 
         if (consumerGroupId == null) {
-            throw new IllegalArgumentException("Specify either --offset or --group to determine the next record to read");
+            return 0L;
         }
 
         long committed = client.fetchCommittedOffset(consumerGroupId, topic, partition);
