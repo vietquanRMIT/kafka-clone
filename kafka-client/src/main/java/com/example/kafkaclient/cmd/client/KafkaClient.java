@@ -25,11 +25,12 @@ public class KafkaClient implements AutoCloseable {
         this.stub = KafkaGrpc.newBlockingStub(channel);
     }
 
-    public void produce(String topic, int partition, String message) {
+    public void produce(String topic, int partition, String message, String key) {
         ProducerRequest request = ProducerRequest.newBuilder()
                 .setTopic(topic)
                 .setPartition(partition)
                 .setValue(ByteString.copyFromUtf8(message))
+                .setKey(key)
                 .build();
 
         ProducerResponse response = stub.produce(request);

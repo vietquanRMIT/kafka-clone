@@ -22,10 +22,13 @@ public class ProducerCommand implements Runnable {
     @Option(names = {"-m", "--message"}, required = true, description = "Message payload")
     String message;
 
+    @Option(names = {"-k", "--key"}, required = false, description = "Message key")
+    String key;
+
     @Override
     public void run() {
         try (KafkaClient client = new KafkaClient("localhost", 9090)) {
-            client.produce(topic, partition, message);
+            client.produce(topic, partition, message, key);
             System.out.println("✅ Message sent to topic " + topic);
         } catch (Exception e) {
             logger.error("Failed to produce message to topic {}: {}", topic, e.getMessage());

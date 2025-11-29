@@ -5,6 +5,7 @@ import com.example.kafka.api.Record;
 import com.google.protobuf.ByteString;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
+import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.grpc.server.service.GrpcService;
@@ -14,21 +15,20 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @GrpcService
+@RequiredArgsConstructor
 public class KafkaService extends KafkaGrpc.KafkaImplBase {
 
     private final Logger logger = LoggerFactory.getLogger(KafkaService.class);
 
-    private static final int DEFAULT_PARTITION_ID = 0;
+    private static final int DEFAULT_PARTITION_COUNT = 3;
 
     // topic -> partition -> records
     private final Map<String, Map<Integer, List<Record>>> logs = new ConcurrentHashMap<>();
+    private final Map<String, AtomicInteger> topicRoundRobinCounters = new ConcurrentHashMap<>();
     private final OffsetManager offsetManager;
-
-    public KafkaService(OffsetManager offsetManager) {
-        this.offsetManager = offsetManager;
-    }
 
     @Override
     public void produce(ProducerRequest request, StreamObserver<ProducerResponse> responseObserver) {
@@ -36,10 +36,13 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
         logger.info("Producer received request {}", request.toString());
 
         String topic = request.getTopic();
-        int partition = DEFAULT_PARTITION_ID;
         byte[] value = request.getValue().toByteArray();
+        String key = request.getKey().isEmpty() ? null : request.getKey();
 
-        List<Record> records = getOrCreatePartition(topic, partition);
+        Map<Integer, List<Record>> partitions = ensureTopic(topic, DEFAULT_PARTITION_COUNT);
+        int partitionCount = partitions.size();
+        int partition = calculatePartition(topic, key, partitionCount);
+        List<Record> records = partitions.get(partition);
         Record newRecord = Record.newBuilder()
                 .setOffset(records.size())
                 .setValue(ByteString.copyFrom(value))
@@ -62,7 +65,7 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
         logger.info("Consumer received request {}", request.toString());
 
         String topic = request.getTopic();
-        int partition = DEFAULT_PARTITION_ID;
+        int partition = request.getPartition();
         long offset = request.getOffset();
 
         List<Record> records = getPartition(topic, partition);
@@ -124,12 +127,16 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
         logger.info("CreateTopic received request {}", request);
 
         String topic = request.getTopic();
-        Map<Integer, List<Record>> partitions = new ConcurrentHashMap<>();
-        partitions.put(DEFAULT_PARTITION_ID, Collections.synchronizedList(new ArrayList<>()));
-        Map<Integer, List<Record>> existing = logs.putIfAbsent(topic, partitions);
+        int requestedPartitions = request.getPartitions() > 0 ? request.getPartitions() : DEFAULT_PARTITION_COUNT;
+        Map<Integer, List<Record>> newPartitions = initializePartitions(requestedPartitions);
+        Map<Integer, List<Record>> existing = logs.putIfAbsent(topic, newPartitions);
         boolean alreadyExists = existing != null;
+
         if (alreadyExists) {
-            existing.computeIfAbsent(DEFAULT_PARTITION_ID, ignored -> Collections.synchronizedList(new ArrayList<>()));
+            ensurePartitionEntries(existing, requestedPartitions);
+            topicRoundRobinCounters.computeIfAbsent(topic, t -> new AtomicInteger(0));
+        } else {
+            topicRoundRobinCounters.put(topic, new AtomicInteger(0));
         }
 
         CreateTopicResponse response = CreateTopicResponse.newBuilder()
@@ -140,14 +147,13 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
         responseObserver.onCompleted();
     }
 
-    private List<Record> getOrCreatePartition(String topic, int partition) {
-        Map<Integer, List<Record>> partitions = logs.computeIfAbsent(topic, t -> {
-            Map<Integer, List<Record>> newPartitions = new ConcurrentHashMap<>();
-            newPartitions.put(DEFAULT_PARTITION_ID, Collections.synchronizedList(new ArrayList<>()));
-            return newPartitions;
-        });
+    public void createTopic(String topic) {
+        createTopic(topic, null);
+    }
 
-        return partitions.computeIfAbsent(partition, ignored -> Collections.synchronizedList(new ArrayList<>()));
+    public void createTopic(String topic, Integer numPartitions) {
+        int partitions = (numPartitions == null || numPartitions <= 0) ? DEFAULT_PARTITION_COUNT : numPartitions;
+        ensureTopic(topic, partitions);
     }
 
     private List<Record> getPartition(String topic, int partition) {
@@ -156,5 +162,43 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
             return null;
         }
         return partitions.get(partition);
+    }
+
+    private Map<Integer, List<Record>> ensureTopic(String topic, int numPartitions) {
+        int partitionsToEnsure = numPartitions <= 0 ? DEFAULT_PARTITION_COUNT : numPartitions;
+        Map<Integer, List<Record>> partitions = logs.computeIfAbsent(topic, t -> {
+            topicRoundRobinCounters.putIfAbsent(t, new AtomicInteger(0));
+            return initializePartitions(partitionsToEnsure);
+        });
+        topicRoundRobinCounters.computeIfAbsent(topic, t -> new AtomicInteger(0));
+        ensurePartitionEntries(partitions, partitionsToEnsure);
+        return partitions;
+    }
+
+    private Map<Integer, List<Record>> initializePartitions(int numPartitions) {
+        int partitionCount = numPartitions <= 0 ? DEFAULT_PARTITION_COUNT : numPartitions;
+        Map<Integer, List<Record>> partitions = new ConcurrentHashMap<>();
+        for (int i = 0; i < partitionCount; i++) {
+            partitions.put(i, Collections.synchronizedList(new ArrayList<>()));
+        }
+        return partitions;
+    }
+
+    private void ensurePartitionEntries(Map<Integer, List<Record>> partitions, int numPartitions) {
+        for (int i = 0; i < numPartitions; i++) {
+            partitions.computeIfAbsent(i, ignored -> Collections.synchronizedList(new ArrayList<>()));
+        }
+    }
+
+    private int calculatePartition(String topic, String key, int numPartitions) {
+        if (numPartitions <= 0) {
+            throw new IllegalArgumentException("numPartitions must be positive");
+        }
+        if (key != null) {
+            return Math.floorMod(key.hashCode(), numPartitions);
+        }
+
+        AtomicInteger counter = topicRoundRobinCounters.computeIfAbsent(topic, t -> new AtomicInteger(0));
+        return Math.floorMod(counter.getAndIncrement(), numPartitions);
     }
 }
