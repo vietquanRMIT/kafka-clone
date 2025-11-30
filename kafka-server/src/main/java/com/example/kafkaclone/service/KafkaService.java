@@ -2,15 +2,20 @@ package com.example.kafkaclone.service;
 
 import com.example.kafka.api.*;
 import com.example.kafka.api.Record;
+import com.example.kafkaclone.storage.FileLog;
 import com.google.protobuf.ByteString;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.grpc.server.service.GrpcService;
 
-import java.util.ArrayList;
-import java.util.Collections;
+import java.io.IOException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,8 +28,10 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
 
     private static final int DEFAULT_PARTITION_COUNT = 3;
 
-    // topic -> partition -> records
-    private final Map<String, Map<Integer, List<Record>>> logs = new ConcurrentHashMap<>();
+    private static final String DATA_DIRECTORY = "./data";
+
+    // topic -> partition -> log
+    private final Map<String, Map<Integer, FileLog>> logs = new ConcurrentHashMap<>();
     private final Map<String, AtomicInteger> topicRoundRobinCounters = new ConcurrentHashMap<>();
     private final OffsetManager offsetManager;
 
@@ -41,16 +48,18 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
         byte[] value = request.getValue().toByteArray();
         String key = request.getKey().isEmpty() ? null : request.getKey();
 
-        Map<Integer, List<Record>> partitions = ensureTopic(topic, DEFAULT_PARTITION_COUNT);
+        Map<Integer, FileLog> partitions = ensureTopic(topic, DEFAULT_PARTITION_COUNT);
         int partitionCount = partitions.size();
         int partition = calculatePartition(topic, key, partitionCount);
-        List<Record> records = partitions.get(partition);
+        FileLog fileLog = partitions.get(partition);
+        long offset = fileLog.getNextOffset();
+
         Record newRecord = Record.newBuilder()
-                .setOffset(records.size())
+                .setOffset(offset)
                 .setValue(ByteString.copyFrom(value))
                 .build();
 
-        records.add(newRecord);
+        fileLog.append(newRecord);
 
         ProducerResponse response = ProducerResponse.newBuilder()
                 .setOffset(newRecord.getOffset())
@@ -70,18 +79,24 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
         int partition = request.getPartition();
         long offset = request.getOffset();
 
-        List<Record> records = getPartition(topic, partition);
-        if (records == null) {
+        FileLog fileLog = getPartition(topic, partition);
+        if (fileLog == null) {
             responseObserver.onError(Status.INVALID_ARGUMENT.withDescription(String.format("topic %s and partition %s not found", topic, partition)).asRuntimeException());
             return;
         }
 
-        if (offset < 0 || offset >= records.size()) {
+        if (offset < 0 || offset >= fileLog.getNextOffset()) {
             responseObserver.onError(Status.INVALID_ARGUMENT.withDescription(String.format("offset %s not found", offset)).asRuntimeException());
             return;
         }
 
-        Record record = records.get((int) offset);
+        List<Record> records = fileLog.read(offset);
+        if (records.isEmpty()) {
+            responseObserver.onError(Status.INVALID_ARGUMENT.withDescription(String.format("offset %s not found", offset)).asRuntimeException());
+            return;
+        }
+
+        Record record = records.get(0);
 
         ConsumerResponse consumerResponse = ConsumerResponse.newBuilder()
                         .setRecord(record)
@@ -130,12 +145,12 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
 
         String topic = request.getTopic();
         int requestedPartitions = request.getPartitions() > 0 ? request.getPartitions() : DEFAULT_PARTITION_COUNT;
-        Map<Integer, List<Record>> newPartitions = initializePartitions(requestedPartitions);
-        Map<Integer, List<Record>> existing = logs.putIfAbsent(topic, newPartitions);
+        Map<Integer, FileLog> newPartitions = initializePartitions(topic, requestedPartitions);
+        Map<Integer, FileLog> existing = logs.putIfAbsent(topic, newPartitions);
         boolean alreadyExists = existing != null;
 
         if (alreadyExists) {
-            ensurePartitionEntries(existing, requestedPartitions);
+            ensurePartitionEntries(topic, existing, requestedPartitions);
             topicRoundRobinCounters.computeIfAbsent(topic, t -> new AtomicInteger(0));
         } else {
             topicRoundRobinCounters.put(topic, new AtomicInteger(0));
@@ -158,38 +173,43 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
         ensureTopic(topic, partitions);
     }
 
-    private List<Record> getPartition(String topic, int partition) {
-        Map<Integer, List<Record>> partitions = logs.get(topic);
+    private FileLog getPartition(String topic, int partition) {
+        Map<Integer, FileLog> partitions = logs.get(topic);
         if (partitions == null) {
             return null;
         }
         return partitions.get(partition);
     }
 
-    private Map<Integer, List<Record>> ensureTopic(String topic, int numPartitions) {
+    private Map<Integer, FileLog> ensureTopic(String topic, int numPartitions) {
         int partitionsToEnsure = numPartitions <= 0 ? DEFAULT_PARTITION_COUNT : numPartitions;
-        Map<Integer, List<Record>> partitions = logs.computeIfAbsent(topic, t -> {
+        Map<Integer, FileLog> partitions = logs.computeIfAbsent(topic, t -> {
             topicRoundRobinCounters.putIfAbsent(t, new AtomicInteger(0));
-            return initializePartitions(partitionsToEnsure);
+            return initializePartitions(t, partitionsToEnsure);
         });
         topicRoundRobinCounters.computeIfAbsent(topic, t -> new AtomicInteger(0));
-        ensurePartitionEntries(partitions, partitionsToEnsure);
+        ensurePartitionEntries(topic, partitions, partitionsToEnsure);
         return partitions;
     }
 
-    private Map<Integer, List<Record>> initializePartitions(int numPartitions) {
+    private Map<Integer, FileLog> initializePartitions(String topic, int numPartitions) {
         int partitionCount = numPartitions <= 0 ? DEFAULT_PARTITION_COUNT : numPartitions;
-        Map<Integer, List<Record>> partitions = new ConcurrentHashMap<>();
+        Map<Integer, FileLog> partitions = new ConcurrentHashMap<>();
         for (int i = 0; i < partitionCount; i++) {
-            partitions.put(i, Collections.synchronizedList(new ArrayList<>()));
+            partitions.put(i, createFileLog(topic, i));
         }
         return partitions;
     }
 
-    private void ensurePartitionEntries(Map<Integer, List<Record>> partitions, int numPartitions) {
+    private void ensurePartitionEntries(String topic, Map<Integer, FileLog> partitions, int numPartitions) {
         for (int i = 0; i < numPartitions; i++) {
-            partitions.computeIfAbsent(i, ignored -> Collections.synchronizedList(new ArrayList<>()));
+            int partitionId = i;
+            partitions.computeIfAbsent(partitionId, ignored -> createFileLog(topic, partitionId));
         }
+    }
+
+    private FileLog createFileLog(String topic, int partitionId) {
+        return new FileLog(DATA_DIRECTORY, topic, partitionId);
     }
 
     private int calculatePartition(String topic, String key, int numPartitions) {
@@ -202,5 +222,53 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
 
         AtomicInteger counter = topicRoundRobinCounters.computeIfAbsent(topic, t -> new AtomicInteger(0));
         return Math.floorMod(counter.getAndIncrement(), numPartitions);
+    }
+
+    @PostConstruct
+    public void init() {
+        logger.info("KafkaService initialized");
+        loadExistingLogs();
+    }
+
+    private void loadExistingLogs() {
+        Path dataDir = Paths.get(DATA_DIRECTORY);
+        try {
+            if (!Files.exists(dataDir)) {
+                Files.createDirectories(dataDir);
+                return;
+            }
+
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(dataDir, "*.log")) {
+                for (Path path : stream) {
+                    String fileName = path.getFileName().toString();
+                    if (!fileName.endsWith(".log")) {
+                        continue;
+                    }
+
+                    String baseName = fileName.substring(0, fileName.length() - 4);
+                    int separator = baseName.lastIndexOf('-');
+                    if (separator <= 0 || separator == baseName.length() - 1) {
+                        logger.warn("Skipping log file with unexpected name: {}", fileName);
+                        continue;
+                    }
+
+                    String topic = baseName.substring(0, separator);
+                    String partitionText = baseName.substring(separator + 1);
+                    int partitionId;
+                    try {
+                        partitionId = Integer.parseInt(partitionText);
+                    } catch (NumberFormatException ex) {
+                        logger.warn("Skipping log file with non-numeric partition: {}", fileName);
+                        continue;
+                    }
+
+                    logs.computeIfAbsent(topic, t -> new ConcurrentHashMap<>())
+                            .computeIfAbsent(partitionId, pid -> createFileLog(topic, pid));
+                    topicRoundRobinCounters.computeIfAbsent(topic, t -> new AtomicInteger(0));
+                }
+            }
+        } catch (IOException e) {
+            logger.error("Failed to load existing log files from {}", DATA_DIRECTORY, e);
+        }
     }
 }
