@@ -90,13 +90,13 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
             return;
         }
 
-        List<Record> records = fileLog.read(offset);
+        List<Record> records = fileLog.read(offset, 100);
         if (records.isEmpty()) {
             responseObserver.onError(Status.INVALID_ARGUMENT.withDescription(String.format("offset %s not found", offset)).asRuntimeException());
             return;
         }
 
-        Record record = records.get(0);
+        Record record = records.getFirst();
 
         ConsumerResponse consumerResponse = ConsumerResponse.newBuilder()
                         .setRecord(record)
