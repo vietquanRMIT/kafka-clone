@@ -17,10 +17,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public class OffsetManager {
 
     private static final Logger logger = LoggerFactory.getLogger(OffsetManager.class);
-    private static final String KEY_DELIMITER = "|";
+    private static final String DELIMITER = "|";
 
-    // consumerGroup -> topic -> partition -> offset
-    private final Map<String, Map<String, Map<Integer, Long>>> committedOffsets = new ConcurrentHashMap<>();
+    // FLATTENED: Key is "consumerGroup|topic|partition"
+    private final Map<String, Long> offsetCache = new ConcurrentHashMap<>();
     private final PersistentOffsetStore persistentOffsetStore;
 
     public OffsetManager(PersistentOffsetStore persistentOffsetStore) {
@@ -29,67 +29,28 @@ public class OffsetManager {
 
     @PostConstruct
     public void init() {
-        logger.info("Recovering committed offsets from disk");
-        persistentOffsetStore.recover().forEach((compositeKey, offset) -> {
-            ParsedKey key = parseCompositeKey(compositeKey);
-            if (key == null) {
-                logger.warn("Skipping malformed offset key {}", compositeKey);
-                return;
-            }
-            committedOffsets
-                    .computeIfAbsent(key.consumerGroupId, k -> new ConcurrentHashMap<>())
-                    .computeIfAbsent(key.topic, k -> new ConcurrentHashMap<>())
-                    .put(key.partition, offset);
-        });
+        Map<String, Long> diskOffsets = persistentOffsetStore.recover();
+        offsetCache.putAll(diskOffsets);
+        logger.info("Recovered {} committed offsets from persistent store", diskOffsets.size());
     }
 
     public void commitOffset(String consumerGroupId, String topic, int partition, long offset) {
-        committedOffsets
-                .computeIfAbsent(consumerGroupId, key -> new ConcurrentHashMap<>())
-                .computeIfAbsent(topic, key -> new ConcurrentHashMap<>())
-                .put(partition, offset);
-
-        persistentOffsetStore.commit(buildCompositeKey(consumerGroupId, topic, partition), offset);
+        String key = buildKey(consumerGroupId, topic, partition);
+        offsetCache.put(key, offset);
+        persistentOffsetStore.commit(key, offset);
     }
 
     public Optional<Long> readOffset(String consumerGroupId, String topic, int partition) {
-        return Optional.ofNullable(
-                committedOffsets.getOrDefault(consumerGroupId, Map.of())
-                        .getOrDefault(topic, Map.of())
-                        .get(partition)
-        );
+        return Optional.of(offsetCache.get(buildKey(consumerGroupId, topic, partition)));
     }
 
     public long getNextOffset(String consumerGroupId, String topic, int partition) {
-        return readOffset(consumerGroupId, topic, partition)
-                .map(offset -> offset + 1)
-                .orElse(0L);
+        String key = buildKey(consumerGroupId, topic, partition);
+        Long lastCommitted = offsetCache.get(key);
+        return (lastCommitted != null) ? lastCommitted + 1 : 0L;
     }
 
-    private String buildCompositeKey(String consumerGroupId, String topic, int partition) {
-        return consumerGroupId + KEY_DELIMITER + topic + KEY_DELIMITER + partition;
-    }
-
-    private ParsedKey parseCompositeKey(String compositeKey) {
-        if (compositeKey == null || compositeKey.isBlank()) {
-            return null;
-        }
-
-        String[] parts = compositeKey.split("\\|", 3);
-        if (parts.length != 3) {
-            return null;
-        }
-
-        int partition;
-        try {
-            partition = Integer.parseInt(parts[2]);
-        } catch (NumberFormatException ex) {
-            return null;
-        }
-
-        return new ParsedKey(parts[0], parts[1], partition);
-    }
-
-    private record ParsedKey(String consumerGroupId, String topic, int partition) {
+    private String buildKey(String group, String topic, int partition) {
+        return group + DELIMITER + topic + DELIMITER + partition;
     }
 }

@@ -1,1 +1,1 @@
-./gradlew bootRun --args='consume -t demo -p 0 -o 1'
+../gradlew bootRun --args='consume -t demo -p 0'
