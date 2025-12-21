@@ -1,0 +1,6 @@
+kafka:
+  broker:
+    id: 101
+grpc:
+  server:
+    port: 9092  # Explicitly hardcoded for this profile

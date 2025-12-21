@@ -28,17 +28,23 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
 
     private static final int DEFAULT_PARTITION_COUNT = 3;
 
-    private static final String DATA_DIRECTORY = "./data";
+    private final BrokerConfig brokerConfig;
 
     // topic -> partition -> log
     private final Map<String, Map<Integer, FileLog>> logs = new ConcurrentHashMap<>();
     private final Map<String, AtomicInteger> topicRoundRobinCounters = new ConcurrentHashMap<>();
     private final OffsetManager offsetManager;
 
-    public KafkaService(OffsetManager offsetManager) {
+    public KafkaService(OffsetManager offsetManager, BrokerConfig brokerConfig) {
         this.offsetManager = offsetManager;
+        this.brokerConfig = brokerConfig;
     }
-
+    @PostConstruct
+    public void logConfig() {
+        System.out.println("Broker ID: " + brokerConfig.getId());
+        System.out.println("Broker Port: " + brokerConfig.getPort());
+        System.out.println("Storage Dir: " + brokerConfig.getStorageDir());
+    }
     @Override
     public void produce(ProducerRequest request, StreamObserver<ProducerResponse> responseObserver) {
         // log -> handle request -> create new Record -> response current offset
@@ -209,7 +215,7 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
     }
 
     private FileLog createFileLog(String topic, int partitionId) {
-        return new FileLog(DATA_DIRECTORY, topic, partitionId);
+        return new FileLog(brokerConfig.getStorageDir(), topic, partitionId);
     }
 
     private int calculatePartition(String topic, String key, int numPartitions) {
@@ -231,7 +237,7 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
     }
 
     private void loadExistingLogs() {
-        Path dataDir = Paths.get(DATA_DIRECTORY);
+        Path dataDir = Paths.get(brokerConfig.getStorageDir());
         try {
             if (!Files.exists(dataDir)) {
                 Files.createDirectories(dataDir);
@@ -268,7 +274,7 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
                 }
             }
         } catch (IOException e) {
-            logger.error("Failed to load existing log files from {}", DATA_DIRECTORY, e);
+            logger.error("Failed to load existing log files from {}", brokerConfig.getStorageDir(), e);
         }
     }
 }

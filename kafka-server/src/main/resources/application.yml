@@ -4,7 +4,7 @@ spring:
 
 grpc:
   server:
-    port: 9090
+    port: ${kafka.broker.port}
   client:
     kafkaClient:
       address: 'static://localhost:9090'
