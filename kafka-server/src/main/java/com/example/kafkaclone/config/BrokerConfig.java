@@ -1,4 +1,4 @@
-package com.example.kafkaclone.service;
+package com.example.kafkaclone.config;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 public class BrokerConfig {
     private String id;
 
-    private int port;
+    private Integer port;
 
     public String getStorageDir () {
         String storageDir = "./data";
