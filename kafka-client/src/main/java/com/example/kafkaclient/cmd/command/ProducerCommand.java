@@ -25,9 +25,12 @@ public class ProducerCommand implements Runnable {
     @Option(names = {"-k", "--key"}, required = false, description = "Message key")
     String key;
 
+    @Option(names = {"--port"}, description = "Broker port", defaultValue = "9091")
+    int port;
+
     @Override
     public void run() {
-        try (KafkaClient client = new KafkaClient("localhost", 9090)) {
+        try (KafkaClient client = new KafkaClient("localhost", port)) {
             client.produce(topic, partition, message, key);
             System.out.println("✅ Message sent to topic " + topic);
         } catch (Exception e) {

@@ -17,13 +17,9 @@ class GrpcPortOverride implements BeanPostProcessor {
 
     @Override
     public Object postProcessBeforeInitialization(Object bean, String beanName) {
-        if (bean instanceof GrpcServerProperties) {
-            GrpcServerProperties props = (GrpcServerProperties) bean;
-
-            if(config.getPort() != null) {
-                log.info("Using port: {}", config.getPort());
-                props.setPort(config.getPort());
-            }
+        if (bean instanceof GrpcServerProperties props && config.getPort() != null) {
+            log.info("Using port: {}", config.getPort());
+            props.setPort(config.getPort());
         }
         return bean;
     }

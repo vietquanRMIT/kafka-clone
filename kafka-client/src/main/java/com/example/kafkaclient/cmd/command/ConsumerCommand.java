@@ -26,9 +26,12 @@ public class ConsumerCommand implements Runnable {
     @Option(names = {"-o", "--offset"}, required = false, description = "Offset to read from. If omitted, the next committed offset for the provided group will be used.")
     Long offset;
 
+    @Option(names = {"--port"}, description = "Broker port", defaultValue = "9091")
+    int port;
+
     @Override
     public void run() {
-        try (KafkaClient client = new KafkaClient("localhost", 9090)) {
+        try (KafkaClient client = new KafkaClient("localhost", port)) {
             long effectiveOffset = resolveOffset(client);
 
             Record record = client.consume(topic, partition, effectiveOffset);

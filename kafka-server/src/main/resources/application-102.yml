@@ -1,6 +1,0 @@
-kafka:
-  broker:
-    id: 102
-grpc:
-  server:
-    port: 9093
