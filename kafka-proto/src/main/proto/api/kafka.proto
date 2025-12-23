@@ -29,7 +29,7 @@ enum ErrorCode {
 // Producer
 message ProducerRequest {
   string topic = 1; // where to send the data
-  uint32 partition = 2; // which partition it is going to. Real life sender should not need to send this. This is for demo.
+  uint32 partition = 2; // which partition it is going to. This should be sent but through the SmartClient instead of manually.
   bytes value = 3; // the value of the message. Should be bytes so it can receive any primal type.
   string key = 7; // optional key for partitioning
 
@@ -52,7 +52,7 @@ message ConsumerRequest {
 }
 
 message ConsumerResponse {
-  Record record = 1;
+  repeated Record records = 1; // Allow returning multiple records in one network call
 }
 
 // Consumer group
@@ -86,6 +86,35 @@ message CreateTopicResponse {
   ErrorCode error_code = 1;
 }
 
+// --- METADATA DISCOVERY (The Missing Link) ---
+message MetadataRequest {
+  repeated string topics = 1; // List of topics to fetch. Empty = fetch ALL topics.
+}
+
+message MetadataResponse {
+  repeated TopicMetadata topics = 1; // The list of topics requested
+  repeated Broker brokers = 2;       // List of all available brokers (ID + Host/Port)
+}
+
+message TopicMetadata {
+  ErrorCode error_code = 1;          // Did we find the topic?
+  string name = 2;                   // "demo"
+  repeated PartitionMetadata partitions = 3; // List of partitions (0, 1, 2...)
+}
+
+message PartitionMetadata {
+  ErrorCode error_code = 1;
+  uint32 partition_id = 2;    // The partition number (e.g., 0)
+  int32 leader_id = 3;        // The Broker ID that is the LEADER (e.g., 101)
+  // In real Kafka, we need to  list "replicas" and "isr" here, but for now, Leader is enough.
+}
+
+message Broker {
+  int32 node_id = 1;   // 101
+  string host = 2;     // "localhost"
+  int32 port = 3;      // 9092
+}
+
 // Service
 service Kafka {
   rpc Produce(ProducerRequest) returns (ProducerResponse);
@@ -93,5 +122,6 @@ service Kafka {
   rpc CommitOffset(CommitOffsetRequest) returns (CommitOffsetResponse);
   rpc FetchOffset(FetchOffsetRequest) returns (FetchOffsetResponse);
   rpc CreateTopic(CreateTopicRequest) returns (CreateTopicResponse);
+  rpc GetMetadata(MetadataRequest) returns (MetadataResponse);
 }
 
