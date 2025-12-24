@@ -35,6 +35,17 @@ public class ConsumerCommand implements Runnable {
             long effectiveOffset = resolveOffset(client);
 
             Record record = client.consume(topic, partition, effectiveOffset);
+
+//            if (record == null) {
+//                Thread.sleep(1000); // No data, wait
+//                continue;
+//            }
+//
+//            System.out.println("Message: " + record.getValue().toStringUtf8());
+//
+//            // Increment for next loop
+//            nextOffset = record.getOffset() + 1;
+
             String message = record.getValue().toStringUtf8();
             System.out.println("Message: " + message);
             System.out.println("Offset: " + record.getOffset());
@@ -42,6 +53,9 @@ public class ConsumerCommand implements Runnable {
             if (consumerGroupId != null) {
                 client.commitOffset(consumerGroupId, topic, partition, record.getOffset());
                 System.out.printf("✅ Committed offset %d for group %s%n", record.getOffset(), consumerGroupId);
+            } else {
+                client.commitOffset("default-group", topic, partition, record.getOffset());
+                System.out.printf("✅ Committed offset %d for default group%n", record.getOffset());
             }
         } catch (Exception e) {
             logger.error("Failed to consume message from topic {}: {}", topic, e.getMessage());
@@ -54,7 +68,7 @@ public class ConsumerCommand implements Runnable {
         }
 
         if (consumerGroupId == null) {
-            return 0L;
+            return 0L; // if there is no group id and no offset, start from beginning. Offset won't get incremented/committed
         }
 
         long committed = client.fetchCommittedOffset(consumerGroupId, topic, partition);
