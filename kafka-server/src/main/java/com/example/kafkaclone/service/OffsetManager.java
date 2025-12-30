@@ -4,6 +4,7 @@ import com.example.kafkaclone.storage.PersistentOffsetStore;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -41,6 +42,16 @@ public class OffsetManager {
     }
 
     public Optional<Long> readOffset(String consumerGroupId, String topic, int partition) {
+        try {
+            String key = buildKey(consumerGroupId, topic, partition);
+            logger.info("Reading offset for key {}", key);
+            if (!offsetCache.containsKey(key)) {
+                return Optional.empty();
+            }
+        } catch (Exception e) {
+            logger.error("Error reading offset for group {}, topic {}, partition {}: {}", consumerGroupId, topic, partition, e.getMessage());
+            return Optional.empty();
+        }
         return Optional.of(offsetCache.get(buildKey(consumerGroupId, topic, partition)));
     }
 
@@ -52,5 +63,10 @@ public class OffsetManager {
 
     private String buildKey(String group, String topic, int partition) {
         return group + DELIMITER + topic + DELIMITER + partition;
+    }
+
+    @Scheduled(fixedRate = 60000)
+    public void diskPersistence() {
+        persistentOffsetStore.saveSnapshot(offsetCache);
     }
 }

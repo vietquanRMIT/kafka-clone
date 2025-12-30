@@ -29,36 +29,37 @@ public class ConsumerCommand implements Runnable {
     @Option(names = {"--port"}, description = "Broker port", defaultValue = "9091")
     int port;
 
+    private volatile boolean running = true;
+
     @Override
     public void run() {
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("\n Shutting down consumer...");
+            running = false; // This breaks the loop
+        }));
+
         try (KafkaClient client = new KafkaClient("localhost", port)) {
             long effectiveOffset = resolveOffset(client);
 
-            Record record = client.consume(topic, partition, effectiveOffset);
+            while(running) {
+                try {
+                    Record record = client.consume(consumerGroupId, topic, partition, effectiveOffset);
 
-//            if (record == null) {
-//                Thread.sleep(1000); // No data, wait
-//                continue;
-//            }
-//
-//            System.out.println("Message: " + record.getValue().toStringUtf8());
-//
-//            // Increment for next loop
-//            nextOffset = record.getOffset() + 1;
+                    if (record == null) {
+                        Thread.sleep(3000); // This will stop thread from fetching for 1s (alternative to long polling)
+                        continue;
+                    }
 
-            String message = record.getValue().toStringUtf8();
-            System.out.println("Message: " + message);
-            System.out.println("Offset: " + record.getOffset());
+                    System.out.println("Message: " + record.getValue().toStringUtf8() + ", Offset: " + record.getOffset());
 
-            if (consumerGroupId != null) {
-                client.commitOffset(consumerGroupId, topic, partition, record.getOffset());
-                System.out.printf("✅ Committed offset %d for group %s%n", record.getOffset(), consumerGroupId);
-            } else {
-                client.commitOffset("default-group", topic, partition, record.getOffset());
-                System.out.printf("✅ Committed offset %d for default group%n", record.getOffset());
+                    effectiveOffset++;
+                } catch (InterruptedException e) {
+                    logger.error("Error during poll (will retry): {}", e.getMessage());
+                    try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
+                }
             }
         } catch (Exception e) {
-            logger.error("Failed to consume message from topic {}: {}", topic, e.getMessage());
+            logger.error("Fatal error starting client", e);
         }
     }
 

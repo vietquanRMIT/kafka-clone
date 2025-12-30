@@ -103,11 +103,9 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
             return;
         }
 
-        Record record = records.getFirst();
-
         ConsumerResponse consumerResponse = ConsumerResponse.newBuilder()
-                        .setRecord(record)
-                                .build();
+                .addAllRecords(records)
+                .build();
 
         responseObserver.onNext(consumerResponse);
         responseObserver.onCompleted();
@@ -136,7 +134,9 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
                 request.getConsumerGroupId(),
                 request.getTopic(),
                 request.getPartition()
-        ).orElse(-1L);
+        ).orElse(0L);
+
+        logger.info("Last committed offset is {}", lastCommitted);
 
         FetchOffsetResponse response = FetchOffsetResponse.newBuilder()
                 .setOffset(lastCommitted)
