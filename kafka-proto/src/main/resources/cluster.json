@@ -1,0 +1,14 @@
+{
+  "brokers": [
+    { "id": "broker-1", "host": "localhost", "port": 9091 },
+    { "id": "broker-2", "host": "localhost", "port": 9092 },
+    { "id": "broker-3", "host": "localhost", "port": 9093 }
+  ],
+  "routes": {
+    "demo": {
+      "0": "broker-1",
+      "1": "broker-2",
+      "2": "broker-3"
+    }
+  }
+}

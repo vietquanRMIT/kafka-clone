@@ -26,9 +26,6 @@ public class ConsumerCommand implements Runnable {
     @Option(names = {"-o", "--offset"}, required = false, description = "Offset to read from. If omitted, the next committed offset for the provided group will be used.")
     Long offset;
 
-    @Option(names = {"--port"}, description = "Broker port", defaultValue = "9091")
-    int port;
-
     private volatile boolean running = true;
 
     @Override
@@ -38,7 +35,7 @@ public class ConsumerCommand implements Runnable {
             running = false; // This breaks the loop
         }));
 
-        try (KafkaClient client = new KafkaClient("localhost", port)) {
+        try (KafkaClient client = new KafkaClient()) {
             long effectiveOffset = resolveOffset(client);
 
             while(running) {
@@ -73,6 +70,6 @@ public class ConsumerCommand implements Runnable {
         }
 
         long committed = client.fetchCommittedOffset(consumerGroupId, topic, partition);
-        return committed < 0 ? 0L : committed + 1;
+        return (committed <= 0) ? 0L : committed + 1;
     }
 }

@@ -1,5 +1,6 @@
 package com.example.kafkaclone.storage;
 
+import com.example.kafkaclone.config.BrokerConfig;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,7 +10,11 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,7 +28,6 @@ import java.util.concurrent.locks.ReentrantLock;
 public class PersistentOffsetStore {
 
     private static final Logger logger = LoggerFactory.getLogger(PersistentOffsetStore.class);
-    private static final String DATA_DIRECTORY = "./data";
     private static final String FILE_NAME = "committed_offsets.log";
     private static final String TEMP_FILE_NAME = "committed_offsets.log.tmp";
     private static final String DELIMITER = "|";
@@ -34,9 +38,9 @@ public class PersistentOffsetStore {
     private final Lock writeLock = new ReentrantLock();
     private BufferedWriter writer;
 
-    public PersistentOffsetStore() {
+    public PersistentOffsetStore(BrokerConfig brokerConfig) {
         try {
-            Path dataDir = Paths.get(DATA_DIRECTORY);
+            Path dataDir = Paths.get(brokerConfig.getStorageDir());
             Files.createDirectories(dataDir);
 
             this.logPath = dataDir.resolve(FILE_NAME);

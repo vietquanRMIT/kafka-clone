@@ -1,1 +1,1 @@
- ./gradlew :kafka-client:bootRun --args='consume -t demo -p 0 --port 9091'
+ ./gradlew :kafka-client:bootRun --args='consume -t demo -p 0 -g group1'

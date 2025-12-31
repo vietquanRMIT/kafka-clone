@@ -19,17 +19,16 @@ public class ProducerCommand implements Runnable {
     @Option(names = {"-m", "--message"}, required = true, description = "Message payload")
     String message;
 
+    @Option(names = {"-p", "--partition"}, required = false, description = "Partition number (optional for round-robin)") 
+    Integer partition;
+
     @Option(names = {"-k", "--key"}, required = false, description = "Message key")
     String key;
 
-    @Option(names = {"--port"}, description = "Broker port", defaultValue = "9091")
-    int port;
-
     @Override
     public void run() {
-        try (KafkaClient client = new KafkaClient("localhost", port)) {
-            client.produce(topic, message, key);
-            System.out.println("✅ Message sent to topic " + topic);
+        try (KafkaClient client = new KafkaClient()) {
+            client.produce(topic, partition, message, key);
         } catch (Exception e) {
             logger.error("Failed to produce message to topic {}: {}", topic, e.getMessage());
         }

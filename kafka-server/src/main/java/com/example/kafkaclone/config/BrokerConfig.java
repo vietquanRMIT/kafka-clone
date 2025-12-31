@@ -16,6 +16,6 @@ public class BrokerConfig {
 
     public String getStorageDir () {
         String storageDir = "./data";
-        return storageDir + "/broker-" + id;
+        return storageDir + "/" + id;
     }
 }
