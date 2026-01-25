@@ -2,8 +2,8 @@ package com.example.kafkaclone.service;
 
 import com.example.kafka.api.*;
 import com.example.kafka.api.Record;
+import com.example.kafka.cluster.BrokerNode;
 import com.example.kafka.cluster.ClusterMetadata;
-import com.example.kafka.cluster.ClusterMetadata.BrokerNode;
 import com.example.kafkaclone.config.BrokerConfig;
 import com.example.kafkaclone.storage.FileLog;
 import com.google.protobuf.ByteString;
@@ -36,12 +36,14 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
         this.brokerConfig = brokerConfig;
         this.brokerId = brokerConfig.getId();
     }
+
     @PostConstruct
-    public void logConfig() {
-        System.out.println("Broker ID: " + brokerConfig.getId());
-        System.out.println("Broker Port: " + brokerConfig.getPort());
-        System.out.println("Storage Dir: " + brokerConfig.getStorageDir());
+    public void init() {
+        logger.info("KafkaService initialized for broker {}, at port {}", brokerId, brokerConfig.getPort());
+        this.assignedPartitions = ClusterMetadata.getAssignmentsForBroker(brokerId);
+        initializeAssignedPartitions();
     }
+
     @Override
     public void produce(ProducerRequest request, StreamObserver<ProducerResponse> responseObserver) {
         // log -> handle request -> create new Record -> response current offset
@@ -51,7 +53,7 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
         byte[] value = request.getValue().toByteArray();
         int partition = request.getPartition();
 
-        if (!ensureLocalLeadership(topic, partition, responseObserver)) {
+        if (ensureLocalLeadership(topic, partition, responseObserver)) {
             return;
         }
 
@@ -68,7 +70,7 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
         ProducerResponse response = ProducerResponse.newBuilder()
                 .setOffset(newRecord.getOffset())
                 .setError(ErrorCode.OK)
-                .setLeaderAddress("localhost:5001")
+                .setLeaderAddress("localhost:" + brokerConfig.getPort())
                 .build();
 
         responseObserver.onNext(response);
@@ -83,7 +85,7 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
         int partition = request.getPartition();
         long offset = request.getOffset();
 
-        if (!ensureLocalLeadership(topic, partition, responseObserver)) {
+        if (ensureLocalLeadership(topic, partition, responseObserver)) {
             return;
         }
 
@@ -106,17 +108,13 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
 
         ConsumerResponse consumerResponse = ConsumerResponse.newBuilder()
                 .addAllRecords(records)
-                .build();
-
-        responseObserver.onNext(consumerResponse);
-        responseObserver.onCompleted();
-    }
+                .build();responseObserver.onNext(consumerResponse);responseObserver.onCompleted();}
 
     @Override
     public void commitOffset(CommitOffsetRequest request, StreamObserver<CommitOffsetResponse> responseObserver) {
         logger.info("CommitOffset received request {}", request);
 
-        if (!ensureLocalLeadership(request.getTopic(), request.getPartition(), responseObserver)) {
+        if (ensureLocalLeadership(request.getTopic(), request.getPartition(), responseObserver)) {
             return;
         }
 
@@ -135,7 +133,7 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
     public void fetchOffset(FetchOffsetRequest request, StreamObserver<FetchOffsetResponse> responseObserver) {
         logger.info("FetchOffset received request {}", request);
 
-        if (!ensureLocalLeadership(request.getTopic(), request.getPartition(), responseObserver)) {
+        if (ensureLocalLeadership(request.getTopic(), request.getPartition(), responseObserver)) {
             return;
         }
 
@@ -196,12 +194,6 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
         return partitions.get(partition);
     }
 
-    @PostConstruct
-    public void init() {
-        logger.info("KafkaService initialized for broker {}", brokerId);
-        this.assignedPartitions = ClusterMetadata.getAssignmentsForBroker(brokerId);
-        initializeAssignedPartitions();
-    }
 
     private void initializeAssignedPartitions() {
         if (assignedPartitions.isEmpty()) {
@@ -223,12 +215,13 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
                 .computeIfAbsent(partitionId, pid -> createFileLog(topic, pid));
     }
 
+//  Ensure that this broker is the leader for the given topic-partition. This is only useful when Client has stale metadata.
     private boolean ensureLocalLeadership(String topic, int partition, StreamObserver<?> responseObserver) {
         if (partition < 0) {
             responseObserver.onError(Status.INVALID_ARGUMENT
                     .withDescription("Partition must be non-negative for topic %s".formatted(topic))
                     .asRuntimeException());
-            return false;
+            return true;
         }
 
         BrokerNode leader = ClusterMetadata.getLeader(topic, partition);
@@ -236,16 +229,16 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
             responseObserver.onError(Status.INVALID_ARGUMENT
                     .withDescription("No leader configured for %s-%d".formatted(topic, partition))
                     .asRuntimeException());
-            return false;
+            return true;
         }
 
         if (!brokerId.equals(leader.id())) {
             responseObserver.onError(Status.FAILED_PRECONDITION
                     .withDescription("Broker %s is not leader for %s-%d".formatted(brokerId, topic, partition))
                     .asRuntimeException());
-            return false;
+            return true;
         }
 
-        return true;
+        return false;
     }
 }

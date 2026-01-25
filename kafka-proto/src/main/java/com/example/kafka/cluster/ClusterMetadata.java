@@ -8,7 +8,6 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,27 +16,34 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Loads static cluster metadata from {@code cluster.json} so both the client and server share the
  * exact same routing knowledge (topics, partitions, broker ownership, etc.).
+ * Basically acts as a simple in-memory "controller". Since there are a lot of different use cases
+ * (e.g., client-side routing, server-side partition assignment), there are several different variables or states
+ * to accommodate them all.
  */
 public final class ClusterMetadata {
 
     private static final Logger logger = LoggerFactory.getLogger(ClusterMetadata.class);
 
+//  Maps of brokers and topic routes (id -> host/port) -> "I have a broker ID 'broker-1'. What is its IP address and Port?"
     private static final Map<String, BrokerNode> brokers;
+
+//  topic -> partition -> brokerId -> I want to write to topic "my-topic", partition 0. Which broker is the leader?
     private static final Map<String, Map<Integer, String>> topicRoutes;
+
+//  Usage: Used by the Server on startup to create the right folders (brokerId -> topic -> partitions) -> "I am broker 'broker-1'. Which topics and partitions do I own? (used on server startup)"
     private static final Map<String, Map<String, List<Integer>>> brokerAssignments;
+
+//  Usage: Used by Producer when the user doesn't specify a partition. -> "How many partitions does topic 'my-topic' have?"
     private static final Map<String, Integer> partitionCounts;
 
     private ClusterMetadata() {
     }
 
-    public record BrokerNode(String id, String host, int port) {
-        public String addressKey() {
-            return host + ":" + port;
-        }
-    }
 
     static {
         Map<String, BrokerNode> brokerMap = new HashMap<>();
+
+        //  topic -> partition -> brokerId
         Map<String, Map<Integer, String>> routes = new HashMap<>();
         Map<String, Map<String, List<Integer>>> assignments = new HashMap<>();
 
@@ -106,10 +112,10 @@ public final class ClusterMetadata {
             throw new ExceptionInInitializerError("Failed to load cluster metadata: " + e.getMessage());
         }
 
-        brokers = Collections.unmodifiableMap(brokerMap);
+        brokers = Map.copyOf(brokerMap);
         topicRoutes = toUnmodifiableNestedMap(routes);
         brokerAssignments = buildImmutableAssignments(assignments);
-        partitionCounts = Collections.unmodifiableMap(new HashMap<>(partitionCounts(routes)));
+        partitionCounts = Map.copyOf(partitionCounts(routes));
 
         logger.info("Loaded {} brokers and {} topic routes from cluster.json", brokers.size(), topicRoutes.size());
     }
@@ -122,8 +128,8 @@ public final class ClusterMetadata {
 
     private static Map<String, Map<Integer, String>> toUnmodifiableNestedMap(Map<String, Map<Integer, String>> routes) {
         Map<String, Map<Integer, String>> snapshot = new HashMap<>();
-        routes.forEach((topic, partitions) -> snapshot.put(topic, Collections.unmodifiableMap(new HashMap<>(partitions))));
-        return Collections.unmodifiableMap(snapshot);
+        routes.forEach((topic, partitions) -> snapshot.put(topic, Map.copyOf(partitions)));
+        return Map.copyOf(snapshot);
     }
 
     private static Map<String, Map<String, List<Integer>>> buildImmutableAssignments(Map<String, Map<String, List<Integer>>> assignments) {
@@ -132,11 +138,11 @@ public final class ClusterMetadata {
             Map<String, List<Integer>> topicSnapshot = new HashMap<>();
             topics.forEach((topic, partitions) -> {
                 partitions.sort(Integer::compareTo);
-                topicSnapshot.put(topic, Collections.unmodifiableList(new ArrayList<>(partitions)));
+                topicSnapshot.put(topic, List.copyOf(partitions));
             });
-            snapshot.put(brokerId, Collections.unmodifiableMap(topicSnapshot));
+            snapshot.put(brokerId, Map.copyOf(topicSnapshot));
         });
-        return Collections.unmodifiableMap(snapshot);
+        return Map.copyOf(snapshot);
     }
 
     public static BrokerNode getLeader(String topic, int partition) {
@@ -158,11 +164,18 @@ public final class ClusterMetadata {
     }
 
     public static Map<String, List<Integer>> getAssignmentsForBroker(String brokerId) {
+        if (brokerId == null) {
+            logger.warn("getAssignmentsForBroker called with null brokerId");
+            return Map.of();
+        }
         Map<String, List<Integer>> assignments = brokerAssignments.get(brokerId);
         return assignments == null ? Map.of() : assignments;
     }
 
     public static boolean isLeader(String brokerId, String topic, int partition) {
+        if (brokerId == null) {
+            return false;
+        }
         Map<Integer, String> partitions = topicRoutes.get(topic);
         if (partitions == null) {
             return false;

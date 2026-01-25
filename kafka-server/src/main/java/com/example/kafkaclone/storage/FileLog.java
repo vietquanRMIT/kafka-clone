@@ -340,6 +340,9 @@ public class FileLog {
      * It is thread-safe and uses a write lock to ensure no operations are in progress
      * during closure. After calling this method, no further operations should be
      * performed on this FileLog instance.
+     * Critique: This is safe but slow for massive files (Linear O(N) startup time).
+     * In a real production system, you would save the index to a separate file (e.g., demo-0.index)
+     * to load it instantly. For this clone, rebuilding is a simpler and acceptable design choice.
      * </p>
      *
      * @throws UncheckedIOException if the file channel cannot be closed

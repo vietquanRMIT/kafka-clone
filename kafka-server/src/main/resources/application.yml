@@ -2,9 +2,14 @@ spring:
   application:
     name: "Kafka-clone"
 
+kafka:
+  broker:
+    id: ${kafka.broker.id:broker-1}
+    port: ${kafka.broker.port:9091}
+
 grpc:
   server:
-    port: ${kafka.broker.port}
+    port: ${kafka.broker.port:9091}
   client:
     kafkaClient:
       address: 'static://localhost:9090'

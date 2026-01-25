@@ -2,8 +2,8 @@ package com.example.kafkaclient.cmd.client;
 
 import com.example.kafka.api.*;
 import com.example.kafka.api.Record;
+import com.example.kafka.cluster.BrokerNode;
 import com.example.kafka.cluster.ClusterMetadata;
-import com.example.kafka.cluster.ClusterMetadata.BrokerNode;
 import com.google.protobuf.ByteString;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -19,8 +19,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class KafkaClient implements AutoCloseable {
 //   Logger
@@ -33,8 +33,7 @@ public class KafkaClient implements AutoCloseable {
 //   gRPC channel pool
     private final ConcurrentHashMap<String, ManagedChannel> channelPool = new ConcurrentHashMap<>();
 
-//   Partition chooser and offset commit tracking
-    private final AtomicInteger partitionChooser = new AtomicInteger();
+//   Offset commit tracking
     private long lastCommitTime = 0;
     private static final long AUTO_COMMIT_INTERVAL_MS = 3000;
     private List<Record> recordCache = new ArrayList<>();
@@ -44,7 +43,7 @@ public class KafkaClient implements AutoCloseable {
     }
 
     public void produce(String topic, Integer partition, String message, String key) {
-        int targetPartition = partition != null ? partition : selectPartition(topic);
+        int targetPartition = partition != null ? partition : selectPartition(topic, key);
         BrokerNode leader = requireLeader(topic, targetPartition);
 
         ProducerRequest.Builder builder = ProducerRequest.newBuilder()
@@ -181,12 +180,15 @@ public class KafkaClient implements AutoCloseable {
         return leader;
     }
 
-    private int selectPartition(String topic) {
+    private int selectPartition(String topic, String key) {
         int partitionCount = ClusterMetadata.getPartitionCount(topic);
         if (partitionCount <= 0) {
             throw new IllegalArgumentException("Topic %s has no configured partitions".formatted(topic));
         }
-        return Math.floorMod(partitionChooser.getAndIncrement(), partitionCount);
+        if (key != null && !key.isEmpty()) {
+            return Math.floorMod(key.hashCode(), partitionCount);
+        }
+        return ThreadLocalRandom.current().nextInt(partitionCount);
     }
 
     private void sendLoop() {
@@ -222,8 +224,5 @@ public class KafkaClient implements AutoCloseable {
             }
         });
         channelPool.clear();
-    }
-
-    private record PendingProduce(BrokerNode broker, ProducerRequest request) {
     }
 }
