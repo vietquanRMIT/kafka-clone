@@ -1,1 +1,1 @@
-./gradlew :kafka-client:bootRun --args='produce -t demo -p 0 -m messageContent'
+./gradlew :kafka-client:bootRun --args='produce -t demo -p 0 -k key-1 -m messageContent'
