@@ -1,11 +1,6 @@
 package com.example.kafkaclient.cmd.client;
 
-import com.example.kafka.api.CommitOffsetRequest;
-import com.example.kafka.api.ConsumerRequest;
-import com.example.kafka.api.ConsumerResponse;
-import com.example.kafka.api.FetchOffsetRequest;
-import com.example.kafka.api.FetchOffsetResponse;
-import com.example.kafka.api.KafkaGrpc;
+import com.example.kafka.api.*;
 import com.example.kafka.api.Record;
 import com.example.kafka.cluster.BrokerNode;
 import io.grpc.Status;
@@ -15,6 +10,9 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Dedicated client responsible for consuming records.
@@ -24,17 +22,37 @@ public class KafkaConsumerClient extends AbstractKafkaClient {
     private final Logger logger = LoggerFactory.getLogger(KafkaConsumerClient.class);
     private List<Record> recordCache = new ArrayList<>();
 
-    public Record consume(String consumerGroupId, String topic, int partition, long offset) {
-        Record cachedRecord = findInCache(offset);
+    private final String consumerGroupId;
+    private final int partition;
+    private final String topic;
+
+    private final AtomicLong currentOffset;
+    private long lastCommittedOffset;
+
+    public KafkaConsumerClient(String consumerGroupId, int partition, String topic) {
+        this.consumerGroupId = consumerGroupId;
+        this.partition = partition;
+        this.topic = topic;
+
+        long startOffset = fetchCommittedOffset(consumerGroupId, topic, partition);
+        this.currentOffset = new AtomicLong(startOffset);
+        this.lastCommittedOffset = startOffset;
+
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        scheduler.scheduleAtFixedRate(this::autoCommitOffset, 3000, 3000, java.util.concurrent.TimeUnit.MILLISECONDS);
+    }
+
+    public Record consume() {
+        Record cachedRecord = findInCache(currentOffset.get());
         if (cachedRecord != null) {
-            maybeCommit(consumerGroupId, topic, partition, cachedRecord.getOffset());
+            currentOffset.incrementAndGet();
             return cachedRecord;
         }
 
         ConsumerRequest request = ConsumerRequest.newBuilder()
                 .setTopic(topic)
                 .setPartition(partition)
-                .setOffset(offset)
+                .setOffset(currentOffset.get())
                 .build();
 
         BrokerNode leader = requireLeader(topic, partition);
@@ -44,13 +62,14 @@ public class KafkaConsumerClient extends AbstractKafkaClient {
             ConsumerResponse response = stub.consume(request);
             this.recordCache = response.getRecordsList();
 
-            if (this.recordCache == null || this.recordCache.isEmpty()) {
+            if (this.recordCache.isEmpty()) {
                 return null;
             }
 
-            Record record = this.recordCache.getFirst();
-            maybeCommit(consumerGroupId, topic, partition, record.getOffset());
-            return record;
+            Record firstRecord = recordCache.getFirst();
+            currentOffset.set(firstRecord.getOffset() + 1);
+
+            return firstRecord;
         } catch (StatusRuntimeException e) {
             if (e.getStatus().getCode() == Status.Code.INVALID_ARGUMENT) {
                 logger.warn("Invalid consume request for topic {} partition {}: {}", topic, partition, e.getMessage());
@@ -64,7 +83,11 @@ public class KafkaConsumerClient extends AbstractKafkaClient {
         }
     }
 
-    public long fetchCommittedOffset(String consumerGroupId, String topic, int partition) {
+    private long fetchCommittedOffset(String consumerGroupId, String topic, int partition) {
+        if (consumerGroupId == null || consumerGroupId.isBlank()) {
+            return 0L;
+        }
+
         FetchOffsetRequest request = FetchOffsetRequest.newBuilder()
                 .setConsumerGroupId(nonNull(consumerGroupId))
                 .setTopic(topic)
@@ -74,30 +97,38 @@ public class KafkaConsumerClient extends AbstractKafkaClient {
         BrokerNode leader = requireLeader(topic, partition);
         KafkaGrpc.KafkaBlockingStub stub = getStub(leader);
         FetchOffsetResponse response = stub.fetchOffset(request);
+
         return response.getOffset();
     }
 
-    private void maybeCommit(String consumerGroupId, String topic, int partition, long offset) {
+    private void autoCommitOffset() {
         if (consumerGroupId == null || consumerGroupId.isBlank()) {
             return;
         }
-        forceCommit(consumerGroupId, topic, partition, offset);
+
+        if (currentOffset.get() <= lastCommittedOffset) {
+            logger.info("currentOffset {} is less than or equal to lastCommittedOffset {}", currentOffset, lastCommittedOffset);
+            return;
+        }
+
+        forceCommit();
     }
 
-    private void forceCommit(String groupId, String topic, int partition, long offset) {
+    private void forceCommit() {
         CommitOffsetRequest request = CommitOffsetRequest.newBuilder()
-                .setConsumerGroupId(groupId)
+                .setConsumerGroupId(consumerGroupId)
                 .setTopic(topic)
                 .setPartition(partition)
-                .setOffset(offset)
+                .setOffset(currentOffset.get())
                 .build();
 
         BrokerNode leader = requireLeader(topic, partition);
         KafkaGrpc.KafkaBlockingStub stub = getStub(leader);
 
         try {
-            stub.commitOffset(request);
-            logger.info("Committed offset {} for {}-{}", offset, topic, partition);
+            CommitOffsetResponse commitOffsetResponse = stub.commitOffset(request);
+            lastCommittedOffset = currentOffset.get();
+            logger.info("Committed offset {} for {}-{}", currentOffset, topic, partition);
         } catch (Exception e) {
             logger.error("Failed to commit offset for {}-{}", topic, partition, e);
         }

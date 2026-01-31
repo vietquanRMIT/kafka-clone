@@ -35,12 +35,10 @@ public class ConsumerCommand implements Runnable {
             running = false; // This breaks the loop
         }));
 
-        try (KafkaConsumerClient client = new KafkaConsumerClient()) {
-            long effectiveOffset = resolveOffset(client);
-
+        try (KafkaConsumerClient client = new KafkaConsumerClient(consumerGroupId, partition, topic)) {
             while(running) {
                 try {
-                    Record record = client.consume(consumerGroupId, topic, partition, effectiveOffset);
+                    Record record = client.consume();
 
                     if (record == null) {
                         Thread.sleep(3000); // This will stop thread from fetching for 1s (alternative to long polling)
@@ -48,8 +46,6 @@ public class ConsumerCommand implements Runnable {
                     }
 
                     System.out.println("Message: " + record.getValue().toStringUtf8() + ", Offset: " + record.getOffset());
-
-                    effectiveOffset++;
                 } catch (InterruptedException e) {
                     logger.error("Error during poll (will retry): {}", e.getMessage());
                     try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
@@ -58,18 +54,5 @@ public class ConsumerCommand implements Runnable {
         } catch (Exception e) {
             logger.error("Fatal error starting client", e);
         }
-    }
-
-    private long resolveOffset(KafkaConsumerClient client) {
-        if (offset != null) {
-            return offset;
-        }
-
-        if (consumerGroupId == null) {
-            return 0L; // if there is no group id and no offset, start from beginning. Offset won't get incremented/committed
-        }
-
-        long committed = client.fetchCommittedOffset(consumerGroupId, topic, partition);
-        return (committed <= 0) ? 0L : committed + 1;
     }
 }
