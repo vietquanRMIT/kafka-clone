@@ -1,6 +1,6 @@
 package com.example.kafkaclient.cmd.command;
 
-import com.example.kafkaclient.cmd.client.KafkaClient;
+import com.example.kafkaclient.cmd.client.KafkaProducerClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -27,7 +27,7 @@ public class ProducerCommand implements Runnable {
 
     @Override
     public void run() {
-        try (KafkaClient client = new KafkaClient()) {
+        try (KafkaProducerClient client = new KafkaProducerClient()) {
             client.produce(topic, partition, message, key);
         } catch (Exception e) {
             logger.error("Failed to produce message to topic {}: {}", topic, e.getMessage());

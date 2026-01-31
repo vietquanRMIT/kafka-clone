@@ -63,7 +63,9 @@ message CommitOffsetRequest {
   int64 offset = 4;
 }
 
-message CommitOffsetResponse {}
+message CommitOffsetResponse {
+  uint64 offset = 1;
+}
 
 // Fetch last committed offset.
 message FetchOffsetRequest {

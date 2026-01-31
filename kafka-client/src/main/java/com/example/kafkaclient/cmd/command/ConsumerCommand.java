@@ -1,7 +1,7 @@
 package com.example.kafkaclient.cmd.command;
 
 import com.example.kafka.api.Record;
-import com.example.kafkaclient.cmd.client.KafkaClient;
+import com.example.kafkaclient.cmd.client.KafkaConsumerClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -35,7 +35,7 @@ public class ConsumerCommand implements Runnable {
             running = false; // This breaks the loop
         }));
 
-        try (KafkaClient client = new KafkaClient()) {
+        try (KafkaConsumerClient client = new KafkaConsumerClient()) {
             long effectiveOffset = resolveOffset(client);
 
             while(running) {
@@ -60,7 +60,7 @@ public class ConsumerCommand implements Runnable {
         }
     }
 
-    private long resolveOffset(KafkaClient client) {
+    private long resolveOffset(KafkaConsumerClient client) {
         if (offset != null) {
             return offset;
         }
