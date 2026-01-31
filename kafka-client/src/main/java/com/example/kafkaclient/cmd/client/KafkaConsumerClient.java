@@ -154,4 +154,10 @@ public class KafkaConsumerClient extends AbstractKafkaClient {
     private String nonNull(String groupId) {
         return groupId == null ? "" : groupId;
     }
+
+    @Override
+    public void close() {
+        forceCommit();
+        super.close();
+    }
 }
