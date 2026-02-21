@@ -39,7 +39,6 @@ public final class ClusterMetadata {
     private ClusterMetadata() {
     }
 
-
     static {
         Map<String, BrokerNode> brokerMap = new HashMap<>();
 

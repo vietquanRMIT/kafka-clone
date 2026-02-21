@@ -49,6 +49,7 @@ message ConsumerRequest {
   string topic = 1;
   uint32 partition = 2;
   int64 offset = 3; // Offset start
+  int64 maxWaitMs = 4; // Max time to wait for new data. If no new data, return what we have.
 }
 
 message ConsumerResponse {

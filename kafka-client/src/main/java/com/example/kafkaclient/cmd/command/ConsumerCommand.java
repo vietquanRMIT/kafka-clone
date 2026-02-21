@@ -36,23 +36,28 @@ public class ConsumerCommand implements Runnable {
         }));
 
         try (KafkaConsumerClient client = new KafkaConsumerClient(consumerGroupId, partition, topic)) {
-            while(running) {
-                try {
+            while (running) {
                     Record record = client.consume();
 
                     if (record == null) {
-                        Thread.sleep(3000); // This will stop thread from fetching for 1s (alternative to long polling)
                         continue;
                     }
 
-                    System.out.println("Message: " + record.getValue().toStringUtf8() + ", Offset: " + record.getOffset());
-                } catch (InterruptedException e) {
-                    logger.error("Error during poll (will retry): {}", e.getMessage());
-                    try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
+                    sampleLongWaitingTask(record);
                 }
+            } catch(Exception e){
+                logger.error("Fatal error starting client", e);
             }
-        } catch (Exception e) {
-            logger.error("Fatal error starting client", e);
+        }
+
+        private void sampleLongWaitingTask (Record record){
+            try {
+                Thread.sleep(10000);
+
+                System.out.println("Message: " + record.getValue().toStringUtf8() + ", Offset: " + record.getOffset());
+
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
         }
     }
-}

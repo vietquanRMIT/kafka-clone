@@ -53,6 +53,7 @@ public class KafkaConsumerClient extends AbstractKafkaClient {
                 .setTopic(topic)
                 .setPartition(partition)
                 .setOffset(currentOffset.get())
+                .setMaxWaitMs(3000)
                 .build();
 
         BrokerNode leader = requireLeader(topic, partition);
@@ -60,6 +61,7 @@ public class KafkaConsumerClient extends AbstractKafkaClient {
 
         try {
             ConsumerResponse response = stub.consume(request);
+
             this.recordCache = response.getRecordsList();
 
             if (this.recordCache.isEmpty()) {

@@ -14,9 +14,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.grpc.server.service.GrpcService;
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 @GrpcService
 public class KafkaService extends KafkaGrpc.KafkaImplBase {
@@ -30,6 +32,9 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
     private final Map<String, Map<Integer, FileLog>> logs = new ConcurrentHashMap<>();
     private final OffsetManager offsetManager;
     private Map<String, List<Integer>> assignedPartitions = Map.of();
+
+    private final Map<String, List<PendingRequest>> listOfAwaitedResponse = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);
 
     public KafkaService(OffsetManager offsetManager, BrokerConfig brokerConfig) {
         this.offsetManager = offsetManager;
@@ -75,6 +80,8 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
 
         responseObserver.onNext(response);
         responseObserver.onCompleted();
+
+        notifyWaiter(topic, offset, partition, newRecord);
     }
 
     @Override
@@ -84,6 +91,7 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
         String topic = request.getTopic();
         int partition = request.getPartition();
         long offset = request.getOffset();
+        long maxWaitMs = request.getMaxWaitMs();
 
         if (ensureLocalLeadership(topic, partition, responseObserver)) {
             return;
@@ -95,20 +103,45 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
             return;
         }
 
-        if (offset < 0 || offset >= fileLog.getNextOffset()) {
+        if (offset > fileLog.getNextOffset()) {
             responseObserver.onError(Status.INVALID_ARGUMENT.withDescription(String.format("offset %s not found", offset)).asRuntimeException());
+            return;
+        }
+
+        if (offset == fileLog.getNextOffset()) {
+            logger.info("Data is not ready yet. Waiting...");
+
+            PendingRequest pendingRequest = PendingRequest.builder()
+                    .responseStreamObserver(responseObserver)
+                    .requestedOffset(offset)
+                    .build();
+
+            String key = topic + "-" + partition;
+            listOfAwaitedResponse.computeIfAbsent(key, k -> new ArrayList<>()).add(pendingRequest);
+
+            pendingRequest.timeoutTask = executor.schedule(() -> {
+                listOfAwaitedResponse.get(key).remove(pendingRequest);
+
+                ConsumerResponse emptyResponse = ConsumerResponse.newBuilder()
+                        .addAllRecords(Collections.emptyList())
+                        .build();
+
+                pendingRequest.responseStreamObserver.onNext(emptyResponse);
+                pendingRequest.responseStreamObserver.onCompleted();
+            }, maxWaitMs, TimeUnit.MILLISECONDS);
+
             return;
         }
 
         List<Record> records = fileLog.read(offset, 100);
-        if (records.isEmpty()) {
-            responseObserver.onError(Status.INVALID_ARGUMENT.withDescription(String.format("offset %s not found", offset)).asRuntimeException());
-            return;
-        }
 
         ConsumerResponse consumerResponse = ConsumerResponse.newBuilder()
                 .addAllRecords(records)
-                .build();responseObserver.onNext(consumerResponse);responseObserver.onCompleted();}
+                .build();
+
+        responseObserver.onNext(consumerResponse);
+        responseObserver.onCompleted();
+    }
 
     @Override
     public void commitOffset(CommitOffsetRequest request, StreamObserver<CommitOffsetResponse> responseObserver) {
@@ -215,7 +248,7 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
                 .computeIfAbsent(partitionId, pid -> createFileLog(topic, pid));
     }
 
-//  Ensure that this broker is the leader for the given topic-partition. This is only useful when Client has stale metadata.
+    //  Ensure that this broker is the leader for the given topic-partition. This is only useful when Client has stale metadata.
     private boolean ensureLocalLeadership(String topic, int partition, StreamObserver<?> responseObserver) {
         if (partition < 0) {
             responseObserver.onError(Status.INVALID_ARGUMENT
@@ -240,5 +273,34 @@ public class KafkaService extends KafkaGrpc.KafkaImplBase {
         }
 
         return false;
+    }
+
+    private void notifyWaiter(String topic, long offset, int partition, Record newRecord) {
+        String key = topic + "-" + partition;
+        List<PendingRequest> requestList = listOfAwaitedResponse.get(key);
+
+        if (requestList == null || requestList.isEmpty()) {
+            return;
+        }
+
+        Iterator<PendingRequest> iterator = requestList.iterator();
+
+        while (iterator.hasNext()) {
+            PendingRequest pendingRequest = iterator.next();
+
+            if (pendingRequest.requestedOffset <= offset) {
+                ConsumerResponse response = ConsumerResponse.newBuilder()
+                        .addRecords(newRecord)
+                        .build();
+
+                if (pendingRequest.tryComplete(response)) {
+                    if (pendingRequest.timeoutTask != null) {
+                        pendingRequest.timeoutTask.cancel(false);
+                    }
+
+                    iterator.remove();
+                }
+            }
+        }
     }
 }
